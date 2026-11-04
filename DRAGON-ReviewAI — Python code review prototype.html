@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<!-- saved from url=(0022)http://localhost:8000/ -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ReviewAI — Python code review prototype</title>
+<style>
+  :root {
+    --bg: #0a0e13;
+    --panel: #10151c;
+    --panel-2: #0d1218;
+    --border: #1e2733;
+    --border-2: #2b3847;
+    --text: #e6edf3;
+    --muted: #8b98a5;
+    --muted-2: #5b6977;
+    --accent: #34d399;
+    --crit: #f87171;
+    --warn: #fbbf24;
+    --info: #60a5fa;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 10% -10%, #12202b 0%, transparent 60%),
+      radial-gradient(1000px 500px at 100% 0%, #101f2b 0%, transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    height: 58px;
+    flex: 0 0 58px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(13, 18, 24, .7);
+    backdrop-filter: blur(10px);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .mark {
+    width: 28px; height: 28px; border-radius: 9px;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, #34d399, #3b82f6);
+    color: #04120c; font-size: 15px; font-weight: 800;
+    box-shadow: 0 4px 14px rgba(52, 211, 153, .25);
+  }
+  .brand h1 { font-size: 14.5px; font-weight: 650; letter-spacing: -.01em; }
+  .brand .proto {
+    font-size: 9.5px; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--muted); border: 1px solid var(--border);
+    padding: 3px 7px; border-radius: 99px;
+  }
+  .engine {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 11.5px; color: var(--muted);
+    border: 1px solid var(--border); background: rgba(255,255,255,.02);
+    padding: 6px 11px; border-radius: 99px;
+  }
+  .engine .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .engine.ai .dot { background: #a78bfa; box-shadow: 0 0 8px #a78bfa; }
+
+  /* ---------- layout ---------- */
+  main {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+    gap: 14px;
+    padding: 14px 16px 16px;
+  }
+  .panel {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(180deg, #11161d, #0f141a);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 12px 32px rgba(0,0,0,.32);
+  }
+  .panel-head {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,.015);
+  }
+  .file { display: flex; gap: 8px; align-items: center; min-width: 0; flex: 1; }
+  .file input, .file select, .actions select {
+    background: #0b1016; border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px;
+    padding: 7px 9px; font-size: 12px; outline: none;
+    font-family: var(--mono);
+  }
+  .file input { flex: 1; min-width: 0; max-width: 230px; }
+  .file select, .actions select { font-family: inherit; cursor: pointer; }
+  .file input:focus, .file select:focus, .actions select:focus { border-color: var(--border-2); }
+  .actions { display: flex; gap: 7px; align-items: center; flex: 0 0 auto; }
+  button { font-family: inherit; }
+  .ghost {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--muted); padding: 7px 10px; border-radius: 8px;
+    font-size: 11.5px; cursor: pointer; transition: .15s;
+  }
+  .ghost:hover { color: var(--text); border-color: var(--border-2); background: rgba(255,255,255,.03); }
+  .primary {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: linear-gradient(180deg, #3ddc97, #22b57a);
+    color: #04120c; border: 0; border-radius: 9px;
+    padding: 9px 15px; font-size: 12.5px; font-weight: 700;
+    cursor: pointer; transition: .15s;
+    box-shadow: 0 4px 16px rgba(52,211,153,.22);
+  }
+  .primary:hover:not(:disabled) { filter: brightness(1.07); }
+  .primary:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
+  kbd {
+    font-family: inherit; font-size: 10px; padding: 1px 5px;
+    border-radius: 4px; background: rgba(0,0,0,.22); opacity: .75;
+  }
+
+  /* ---------- editor ---------- */
+  .editor { flex: 1; min-height: 0; display: flex; background: #0b1016; }
+  .gutter {
+    flex: 0 0 52px; width: 52px; overflow: hidden;
+    background: #0a0f14; border-right: 1px solid #161e28;
+  }
+  #gutterInner {
+    padding: 12px 10px 12px 0;
+    text-align: right;
+    color: #3f4c5b;
+    font: 13.5px/21px var(--mono);
+    white-space: pre;
+    will-change: transform;
+    user-select: none;
+  }
+  #code {
+    flex: 1; min-width: 0; resize: none; border: 0; outline: 0;
+    background: transparent; color: #d8e3ec;
+    padding: 12px 16px;
+    font: 13.5px/21px var(--mono);
+    tab-size: 2;
+    white-space: pre;
+    overflow: auto;
+    caret-color: var(--accent);
+  }
+  #code::selection { background: rgba(96,165,250,.28); }
+  #code::-webkit-scrollbar, .results::-webkit-scrollbar, .snip::-webkit-scrollbar { width: 10px; height: 10px; }
+  #code::-webkit-scrollbar-thumb, .results::-webkit-scrollbar-thumb, .snip::-webkit-scrollbar-thumb {
+    background: #26313d; border-radius: 99px; border: 2px solid transparent; background-clip: padding-box;
+  }
+  #code::-webkit-scrollbar-track, .results::-webkit-scrollbar-track { background: transparent; }
+  .editor-foot {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 9px 12px;
+    border-top: 1px solid var(--border);
+    background: rgba(255,255,255,.015);
+  }
+  #stats { font-size: 11.5px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+
+  /* ---------- results ---------- */
+  .results-head-title { font-size: 11.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .results-head-hint { font-size: 11px; color: var(--muted-2); }
+  .results { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
+
+  .empty {
+    height: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; gap: 8px; padding: 20px;
+  }
+  .empty-icon {
+    width: 56px; height: 56px; border-radius: 17px;
+    display: grid; place-items: center; font-size: 24px; color: #6ee7b7;
+    background: linear-gradient(135deg, rgba(52,211,153,.16), rgba(96,165,250,.12));
+    border: 1px solid rgba(52,211,153,.24);
+    margin-bottom: 4px;
+  }
+  .empty h2 { font-size: 15.5px; font-weight: 600; }
+  .empty p { font-size: 12.5px; line-height: 1.55; color: var(--muted); max-width: 330px; }
+  .empty strong { color: #c9d6e2; font-weight: 600; }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
+  .tags span {
+    font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--muted); border: 1px solid var(--border);
+    padding: 4px 8px; border-radius: 99px;
+  }
+  .empty .foot { margin-top: 10px; font-size: 10.5px; color: var(--muted-2); }
+
+  .score-card {
+    display: flex; gap: 16px; align-items: center;
+    padding: 16px; border: 1px solid var(--border); border-radius: 12px;
+    background: linear-gradient(135deg, rgba(255,255,255,.028), rgba(255,255,255,.005));
+  }
+  .ring {
+    flex: 0 0 auto; width: 104px; height: 104px; border-radius: 50%;
+    background: conic-gradient(var(--c) calc(var(--p) * 1%), #1c2530 0);
+    display: grid; place-items: center; position: relative;
+  }
+  .ring::after {
+    content: ""; position: absolute; inset: 7px; border-radius: 50%;
+    background: #11161d;
+  }
+  .ring-in {
+    position: relative; z-index: 1;
+    display: flex; flex-direction: column; align-items: center; line-height: 1;
+  }
+  .ring-in span { font-size: 27px; font-weight: 750; letter-spacing: -.03em; }
+  .ring-in small { font-size: 9px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-top: 4px; }
+  .verdict-title { font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+  .summary { font-size: 12.5px; line-height: 1.5; color: var(--muted); margin-top: 4px; }
+
+  .metrics { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 14px; }
+  .metric {
+    font-size: 11px; padding: 4px 9px; border-radius: 99px;
+    border: 1px solid var(--border); color: var(--muted);
+    background: rgba(255,255,255,.02);
+  }
+  .metric b { color: var(--text); font-weight: 600; }
+  .metric.critical { color: #fca5a5; border-color: rgba(248,113,113,.3); background: rgba(248,113,113,.08); }
+  .metric.warning { color: #fde68a; border-color: rgba(251,191,36,.28); background: rgba(251,191,36,.07); }
+  .metric.info { color: #bfdbfe; border-color: rgba(96,165,250,.28); background: rgba(96,165,250,.07); }
+  .metric.engine { margin-left: auto; color: var(--muted-2); font-family: var(--mono); font-size: 10.5px; }
+
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11.5px; padding: 5px 10px; border-radius: 99px;
+    border: 1px solid var(--border); background: transparent;
+    color: var(--muted); cursor: pointer; transition: .15s;
+  }
+  .chip b { font-weight: 600; font-size: 10.5px; opacity: .75; }
+  .chip:hover { color: var(--text); border-color: var(--border-2); }
+  .chip.active { background: rgba(52,211,153,.12); border-color: rgba(52,211,153,.4); color: #6ee7b7; }
+
+  .issue {
+    border: 1px solid var(--border); border-left: 3px solid var(--border-2);
+    border-radius: 10px; padding: 11px 13px; margin-bottom: 9px;
+    background: rgba(255,255,255,.018); cursor: pointer; outline: none;
+    transition: background .15s, transform .15s;
+  }
+  .issue:hover { background: rgba(255,255,255,.038); transform: translateX(1px); }
+  .issue:focus-visible { box-shadow: 0 0 0 2px rgba(96,165,250,.55); }
+  .issue.critical { border-left-color: var(--crit); }
+  .issue.warning { border-left-color: var(--warn); }
+  .issue.info { border-left-color: var(--info); }
+  .issue-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 10.5px; }
+  .sev { text-transform: uppercase; letter-spacing: .06em; font-weight: 750; padding: 2px 7px; border-radius: 99px; }
+  .critical .sev { color: #fecaca; background: rgba(248,113,113,.14); }
+  .warning .sev { color: #fde68a; background: rgba(251,191,36,.12); }
+  .info .sev { color: #bfdbfe; background: rgba(96,165,250,.12); }
+  .cat { color: var(--muted); }
+  .ln { margin-left: auto; color: var(--muted-2); font-family: var(--mono); font-size: 10.5px; }
+  .msg { font-size: 12.8px; line-height: 1.45; color: #d6e0e9; margin-bottom: 8px; }
+  .snip {
+    display: flex; gap: 10px; overflow: auto;
+    background: #0a0f14; border: 1px solid #17202b; border-radius: 7px;
+    padding: 7px 9px; margin-bottom: 8px;
+  }
+  .snip-ln { color: #3f4c5b; user-select: none; font: 12px/1.5 var(--mono); }
+  .snip code { font: 12px/1.5 var(--mono); color: #a7c0d4; white-space: pre; }
+  .sug { font-size: 12px; line-height: 1.45; color: var(--muted); }
+  .sug span {
+    display: inline-block; font-size: 9.5px; text-transform: uppercase; letter-spacing: .07em;
+    font-weight: 750; color: #6ee7b7; background: rgba(52,211,153,.1);
+    border: 1px solid rgba(52,211,153,.22); padding: 1px 6px; border-radius: 99px;
+    margin-right: 7px; vertical-align: 1px;
+  }
+  .no-match { font-size: 12.5px; color: var(--muted); text-align: center; padding: 26px 10px; }
+
+  .loading {
+    height: 100%; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 13px; color: var(--muted);
+  }
+  .spinner {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 3px solid #1e2733; border-top-color: var(--accent);
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading p { font-size: 13px; }
+  .loading .hint { font-size: 11px; color: var(--muted-2); }
+
+  .error-card {
+    border: 1px solid rgba(248,113,113,.32); background: rgba(248,113,113,.07);
+    border-radius: 12px; padding: 16px;
+  }
+  .error-card h3 { font-size: 13px; color: #fca5a5; margin-bottom: 5px; }
+  .error-card p { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+
+  @media (max-width: 900px) {
+    main {
+      grid-template-columns: 1fr;
+      grid-template-rows: minmax(260px, 1fr) minmax(300px, 1.1fr);
+      overflow-y: auto;
+    }
+    .file input { max-width: 150px; }
+    .results-head-hint { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="mark">✦</div>
+    <h1>ReviewAI</h1>
+    <span class="proto">python</span>
+  </div>
+  <div class="engine" id="engineBadge"><span class="dot"></span> static analysis</div>
+</header>
+
+<main>
+  <section class="panel">
+    <div class="panel-head">
+      <div class="file">
+        <input id="filename" value="sample.py" spellcheck="false" aria-label="Filename">
+        <select id="language" aria-label="Language">
+          <option value="python" selected="">Python</option>
+          <option value="javascript">JavaScript</option>
+          <option value="typescript">TypeScript</option>
+          <option value="go">Go</option>
+        </select>
+      </div>
+      <div class="actions">
+        <select id="sample" aria-label="Load sample">
+          <option value="">Load sample…</option>
+          <option value="python">Python</option>
+          <option value="javascript">JavaScript</option>
+          <option value="go">Go</option>
+        </select>
+        <button class="ghost" id="clearBtn" type="button">Clear</button>
+      </div>
+    </div>
+
+    <div class="editor">
+      <div class="gutter" id="gutter"><div id="gutterInner" style="transform: translateY(0px);">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23</div></div>
+      <textarea id="code" wrap="off" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Source code"></textarea>
+    </div>
+
+    <div class="editor-foot">
+      <span id="stats">23 lines · 479 chars</span>
+      <button class="primary" id="reviewBtn" type="button">
+        Review code <kbd>Ctrl ↵</kbd>
+      </button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div class="results-head-title">Review report</div>
+      <div class="results-head-hint">click an issue to jump to its line</div>
+    </div>
+    <div class="results" id="results">
+      <div class="empty">
+        <div class="empty-icon">✦</div>
+        <h2>Ready to review</h2>
+        <p>Paste code on the left, choose a language, and hit <strong>Review code</strong>. Every finding is tied to a line.</p>
+        <div class="tags"><span>Security</span><span>Bugs</span><span>Style</span><span>Suggestions</span></div>
+        <div class="foot">Python static analysis · optional LLM · runs locally</div>
+      </div></div>
+  </section>
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    code: $("code"),
+    filename: $("filename"),
+    language: $("language"),
+    sample: $("sample"),
+    gutterInner: $("gutterInner"),
+    stats: $("stats"),
+    results: $("results"),
+    reviewBtn: $("reviewBtn"),
+    clearBtn: $("clearBtn"),
+    engineBadge: $("engineBadge"),
+  };
+
+  const SAMPLES = {
+    javascript: {
+      filename: "app.js",
+      language: "javascript",
+      code:
+`var apiKey = "sk-live-4f9a2c7e8b1d";
+
+function getUser(id) {
+  const query = "SELECT * FROM users WHERE id = " + id;
+  return db.query(query).then(function (user) {
+    console.log("loaded user", user);
+    document.getElementById("out").innerHTML = user.name;
+  });
+}
+
+function save() {
+  try {
+    localStorage.setItem("draft", JSON.stringify(draft));
+  } catch (e) {}
+}
+`
+    },
+    python: {
+      filename: "sample.py",
+      language: "python",
+      code:
+`import os
+import pickle
+import requests
+
+API_KEY = "sk-live-1234567890"
+
+def load_user(user_id, options={}):
+    data = pickle.loads(requests.get("http://example.com/api").content)
+    try:
+        return db.execute(f"SELECT * FROM users WHERE id = {user_id}")
+    except:
+        pass
+
+def compute(values):
+    total = 0
+    for value in values:
+        if value == None:
+            print("skipping")
+        else:
+            total += value
+    eval("total")
+    return total
+`
+    },
+    go: {
+      filename: "main.go",
+      language: "go",
+      code:
+`package main
+
+import (
+\t"fmt"
+\t"os"
+)
+
+func main() {
+\tdata, _ := os.ReadFile("config.json")
+\t_ = os.Remove("tmp")
+\tfmt.Println(string(data))
+\tif len(data) == 0 {
+\t\tpanic("empty config")
+\t}
+}
+`
+    }
+  };
+
+  const state = { report: null, filter: "all" };
+  const STORAGE_KEY = "reviewai.state.v1";
+
+  const esc = (v) =>
+    String(v ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+
+  /* ---------- editor plumbing ---------- */
+
+  function lineCount() {
+    return els.code.value.split("\n").length;
+  }
+
+  function renderGutter() {
+    const n = lineCount();
+    const parts = new Array(n);
+    for (let i = 0; i < n; i++) parts[i] = i + 1;
+    els.gutterInner.textContent = parts.join("\n");
+  }
+
+  function syncGutter() {
+    els.gutterInner.style.transform = `translateY(${-els.code.scrollTop}px)`;
+  }
+
+  function updateStats() {
+    const code = els.code.value;
+    const lines = lineCount();
+    const chars = code.length;
+    els.stats.textContent = `${lines} line${lines === 1 ? "" : "s"} · ${chars} char${chars === 1 ? "" : "s"}`;
+  }
+
+  function updateEditor() {
+    renderGutter();
+    updateStats();
+    syncGutter();
+  }
+
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        code: els.code.value,
+        filename: els.filename.value,
+        language: els.language.value,
+      }));
+    } catch (_) { /* storage may be unavailable */ }
+  }
+
+  function loadSample(key) {
+    const s = SAMPLES[key];
+    if (!s) return;
+    els.filename.value = s.filename;
+    els.language.value = s.language;
+    els.code.value = s.code;
+    updateEditor();
+    persist();
+    els.code.focus();
+  }
+
+  function restore() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); } catch (_) {}
+    if (saved && typeof saved.code === "string" && saved.code.trim() !== "") {
+      els.code.value = saved.code;
+      if (saved.filename) els.filename.value = saved.filename;
+      if (saved.language) els.language.value = saved.language;
+    } else {
+      els.code.value = SAMPLES.python.code;
+    }
+    updateEditor();
+  }
+
+  els.code.addEventListener("input", () => { updateEditor(); persist(); });
+  els.code.addEventListener("scroll", syncGutter);
+  els.filename.addEventListener("input", persist);
+  els.language.addEventListener("change", persist);
+
+  els.code.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const start = els.code.selectionStart;
+      const end = els.code.selectionEnd;
+      els.code.setRangeText("  ", start, end, "end");
+      updateEditor();
+      persist();
+    }
+  });
+
+  els.sample.addEventListener("change", (e) => {
+    const key = e.target.value;
+    if (key) loadSample(key);
+    e.target.value = "";
+  });
+
+  els.clearBtn.addEventListener("click", () => {
+    els.code.value = "";
+    els.filename.value = "snippet.py";
+    els.language.value = "python";
+    updateEditor();
+    persist();
+    state.report = null;
+    renderEmpty();
+    els.code.focus();
+  });
+
+  /* ---------- review ---------- */
+
+  function renderEmpty() {
+    els.results.innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">✦</div>
+        <h2>Ready to review</h2>
+        <p>Paste code on the left, choose a language, and hit <strong>Review code</strong>. Every finding is tied to a line.</p>
+        <div class="tags"><span>Security</span><span>Bugs</span><span>Style</span><span>Suggestions</span></div>
+        <div class="foot">Python static analysis · optional LLM · runs locally</div>
+      </div>`;
+  }
+
+  function renderLoading() {
+    els.results.innerHTML = `
+      <div class="loading">
+        <div class="spinner"></div>
+        <p>Analyzing your code…</p>
+        <span class="hint">checking security, correctness and style</span>
+      </div>`;
+  }
+
+  function renderError(message) {
+    els.results.innerHTML = `
+      <div class="error-card">
+        <h3>Review failed</h3>
+        <p>${esc(message)}</p>
+      </div>`;
+  }
+
+  function verdictFor(score) {
+    if (score >= 85) return { label: "Looks good", color: "#22c55e" };
+    if (score >= 65) return { label: "Needs attention", color: "#f59e0b" };
+    return { label: "High risk", color: "#ef4444" };
+  }
+
+  function issueHTML(i) {
+    const sev = ["critical", "warning", "info"].includes(i.severity) ? i.severity : "warning";
+    return `
+      <article class="issue ${sev}" data-line="${Number(i.line) || 1}" tabindex="0" role="button" title="Jump to line ${Number(i.line) || 1}">
+        <div class="issue-head">
+          <span class="sev">${esc(sev)}</span>
+          <span class="cat">${esc(i.category || "General")}</span>
+          <span class="ln">line ${Number(i.line) || 1}</span>
+        </div>
+        <p class="msg">${esc(i.message)}</p>
+        ${i.snippet ? `<pre class="snip"><span class="snip-ln">${Number(i.line) || 1}</span><code>${esc(i.snippet)}</code></pre>` : ""}
+        ${i.suggestion ? `<p class="sug"><span>Fix</span>${esc(i.suggestion)}</p>` : ""}
+      </article>`;
+  }
+
+  function renderReport() {
+    const r = state.report;
+    if (!r) return renderEmpty();
+
+    const v = verdictFor(r.score);
+    const m = r.metrics || {};
+    const counts = {
+      all: r.issues.length,
+      critical: m.critical || 0,
+      warning: m.warnings || 0,
+      info: m.infos || 0,
+    };
+    const filters = [
+      ["all", "All"],
+      ["critical", "Critical"],
+      ["warning", "Warning"],
+      ["info", "Info"],
+    ];
+
+    const visible = state.filter === "all"
+      ? r.issues
+      : r.issues.filter((i) => i.severity === state.filter);
+
+    els.results.innerHTML = `
+      <div class="score-card">
+        <div class="ring" style="--p:${Math.max(0, Math.min(100, r.score))};--c:${v.color}">
+          <div class="ring-in"><span>${r.score}</span><small>score</small></div>
+        </div>
+        <div>
+          <div class="verdict-title" style="color:${v.color}">${v.label}</div>
+          <p class="summary">${esc(r.summary)}</p>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <span class="metric critical"><b>${counts.critical}</b> critical</span>
+        <span class="metric warning"><b>${counts.warning}</b> warnings</span>
+        <span class="metric info"><b>${counts.info}</b> suggestions</span>
+        <span class="metric engine">${esc(r.engine)}</span>
+      </div>
+
+      <div class="filters">
+        ${filters.map(([key, label]) => `
+          <button type="button" class="chip ${state.filter === key ? "active" : ""}" data-filter="${key}">
+            ${label} <b>${counts[key]}</b>
+          </button>`).join("")}
+      </div>
+
+      <div class="issue-list">
+        ${visible.length
+          ? visible.map(issueHTML).join("")
+          : `<div class="no-match">No ${esc(state.filter)} issues. Nice.</div>`}
+      </div>`;
+  }
+
+  async function runReview() {
+    const code = els.code.value;
+    if (!code.trim()) {
+      renderError("Nothing to review yet — paste some code first.");
+      return;
+    }
+
+    els.reviewBtn.disabled = true;
+    renderLoading();
+
+    try {
+      const res = await fetch("/api/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          filename: els.filename.value,
+          language: els.language.value,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      state.report = data;
+      state.filter = "all";
+      renderReport();
+    } catch (err) {
+      state.report = null;
+      renderError(err.message || "Could not reach the review service.");
+    } finally {
+      els.reviewBtn.disabled = false;
+    }
+  }
+
+  function jumpToLine(line) {
+    const lines = els.code.value.split("\n");
+    if (line < 1 || line > lines.length) return;
+    let start = 0;
+    for (let i = 0; i < line - 1; i++) start += lines[i].length + 1;
+    const end = start + lines[line - 1].length;
+    els.code.focus();
+    els.code.setSelectionRange(start, end);
+    const lh = 21;
+    els.code.scrollTop = Math.max(0, (line - 1) * lh - els.code.clientHeight / 2 + lh);
+    syncGutter();
+  }
+
+  els.results.addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (chip) {
+      state.filter = chip.dataset.filter;
+      renderReport();
+      return;
+    }
+    const issue = e.target.closest(".issue");
+    if (issue) jumpToLine(Number(issue.dataset.line));
+  });
+
+  els.results.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const issue = e.target.closest(".issue");
+    if (!issue) return;
+    e.preventDefault();
+    jumpToLine(Number(issue.dataset.line));
+  });
+
+  els.reviewBtn.addEventListener("click", runReview);
+
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      runReview();
+    }
+  });
+
+  /* ---------- engine badge ---------- */
+
+  async function loadEngineInfo() {
+    try {
+      const res = await fetch("/api/info");
+      if (!res.ok) return;
+      const info = await res.json();
+      if (info.aiEnabled) {
+        els.engineBadge.innerHTML = `<span class="dot"></span> static + AI`;
+        els.engineBadge.classList.add("ai");
+        els.engineBadge.title = `LLM: ${info.model}`;
+      }
+    } catch (_) { /* keep heuristic label */ }
+  }
+
+  restore();
+  renderEmpty();
+  loadEngineInfo();
+})();
+</script>
+
+
+</body></html>
